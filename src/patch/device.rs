@@ -33,14 +33,14 @@ pub trait DeviceExt {
     fn modify_cpu(&mut self, cmod: &Hash) -> PatchResult;
 
     /// Modify pspec inside device according to pmod
-    fn modify_peripheral(&mut self, pspec: &str, pmod: &Hash) -> PatchResult;
+    fn modify_peripheral(&mut self, pspec: &str, pmod: &Hash, env: &Env) -> PatchResult;
 
     /// Add pname given by padd to device
-    fn add_peripheral(&mut self, pname: &str, padd: &Hash) -> PatchResult;
+    fn add_peripheral(&mut self, pname: &str, padd: &Hash, env: &Env) -> PatchResult;
 
     /// Remove registers from pname and mark it as derivedFrom pderive.
     /// Update all derivedFrom referencing pname
-    fn derive_peripheral(&mut self, pname: &str, pderive: &Yaml) -> PatchResult;
+    fn derive_peripheral(&mut self, pname: &str, pderive: &Yaml, env: &Env) -> PatchResult;
 
     /// Move registers from pold to pnew.
     /// Update all derivedFrom referencing pold
@@ -95,7 +95,7 @@ impl DeviceExt for Device {
                 "_peripherals" => {
                     for (pspec, pmod) in val.hash()? {
                         let pspec = pspec.str()?;
-                        self.modify_peripheral(pspec, pmod.hash()?)
+                        self.modify_peripheral(pspec, pmod.hash()?, &env)
                             .with_context(|| {
                                 format!("Modifying peripherals matched to `{pspec}`")
                             })?;
@@ -119,7 +119,7 @@ impl DeviceExt for Device {
                 }
 
                 _ => self
-                    .modify_peripheral(key, val.hash()?)
+                    .modify_peripheral(key, val.hash()?, &env)
                     .with_context(|| format!("Modifying peripherals matched to `{key}`"))?,
             }
         }
@@ -134,14 +134,14 @@ impl DeviceExt for Device {
         // Handle any new peripherals (!)
         for (pname, padd) in device.hash_iter("_add") {
             let pname = pname.str()?;
-            self.add_peripheral(pname, padd.hash()?)
+            self.add_peripheral(pname, padd.hash()?, &env)
                 .with_context(|| format!("Adding peripheral `{pname}`"))?;
         }
 
         // Handle any derived peripherals
         for (pname, pderive) in device.hash_iter("_derive") {
             let pname = pname.str()?;
-            self.derive_peripheral(pname, pderive)
+            self.derive_peripheral(pname, pderive, &env)
                 .with_context(|| format!("Deriving peripheral `{pname}` from `{pderive:?}`"))?;
         }
 
@@ -222,11 +222,11 @@ impl DeviceExt for Device {
         Ok(())
     }
 
-    fn modify_peripheral(&mut self, pspec: &str, pmod: &Hash) -> PatchResult {
+    fn modify_peripheral(&mut self, pspec: &str, pmod: &Hash, env: &Env) -> PatchResult {
         let mut modified = HashSet::new();
         let ptags = self.iter_peripherals(pspec).collect::<Vec<_>>();
         if !ptags.is_empty() {
-            let peripheral_builder = make_peripheral(pmod, true)?;
+            let peripheral_builder = make_peripheral(pmod, true, env)?;
             let dim = make_dim_element(pmod)?;
             for ptag in ptags {
                 modified.insert(ptag.name.clone());
@@ -271,12 +271,12 @@ impl DeviceExt for Device {
         Ok(())
     }
 
-    fn add_peripheral(&mut self, pname: &str, padd: &Hash) -> PatchResult {
+    fn add_peripheral(&mut self, pname: &str, padd: &Hash, env: &Env) -> PatchResult {
         if self.get_peripheral(pname).is_some() {
             return Err(anyhow!("device already has a peripheral {pname}"));
         }
 
-        let pnew = make_peripheral(padd, false)?
+        let pnew = make_peripheral(padd, false, env)?
             .name(pname.to_string())
             .build(VAL_LVL)?;
         let pnew = if let Some(dim) = make_dim_element(padd)? {
@@ -289,7 +289,7 @@ impl DeviceExt for Device {
         Ok(())
     }
 
-    fn derive_peripheral(&mut self, pname: &str, pderive: &Yaml) -> PatchResult {
+    fn derive_peripheral(&mut self, pname: &str, pderive: &Yaml, env: &Env) -> PatchResult {
         let (pderive, info) = if let Some(pderive) = pderive.as_str() {
             (
                 pderive,
@@ -304,7 +304,7 @@ impl DeviceExt for Device {
             })?;
             (
                 pderive,
-                make_peripheral(hash, true)?.derived_from(Some(pderive.into())),
+                make_peripheral(hash, true, env)?.derived_from(Some(pderive.into())),
             )
         } else {
             return Err(anyhow!("derive: incorrect syntax for {pname}"));

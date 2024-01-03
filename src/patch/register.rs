@@ -41,7 +41,7 @@ pub trait RegisterExt {
     fn process(&mut self, rmod: &Hash, config: &Config, env: Env) -> PatchResult;
 
     /// Add fname given by fadd to rtag
-    fn add_field(&mut self, fname: &str, fadd: &Hash) -> PatchResult;
+    fn add_field(&mut self, fname: &str, fadd: &Hash, env: &Env) -> PatchResult;
 
     /// Delete fields matched by fspec inside rtag
     fn delete_field(&mut self, fspec: &str) -> PatchResult;
@@ -87,7 +87,7 @@ pub trait RegisterExt {
     fn strip_end(&mut self, substr: &str) -> PatchResult;
 
     /// Modify fspec inside rtag according to fmod
-    fn modify_field(&mut self, fspec: &str, fmod: &Hash) -> PatchResult;
+    fn modify_field(&mut self, fspec: &str, fmod: &Hash, env: &Env) -> PatchResult;
 
     /// Merge all fspec in rtag.
     /// Support list of field to auto-merge, and dict with fspec or list of fspec
@@ -136,13 +136,13 @@ impl RegisterExt for Register {
         // Handle modifications
         for (fspec, fmod) in rmod.hash_iter("_modify") {
             let fspec = fspec.str()?;
-            self.modify_field(fspec, fmod.hash()?)
+            self.modify_field(fspec, fmod.hash()?, &env)
                 .with_context(|| format!("Modifying fields matched to `{fspec}`"))?;
         }
         // Handle additions
         for (fname, fadd) in rmod.hash_iter("_add") {
             let fname = fname.str()?;
-            self.add_field(fname, fadd.hash()?)
+            self.add_field(fname, fadd.hash()?, &env)
                 .with_context(|| format!("Adding field `{fname}`"))?;
         }
 
@@ -232,9 +232,9 @@ impl RegisterExt for Register {
         Ok(())
     }
 
-    fn modify_field(&mut self, fspec: &str, fmod: &Hash) -> PatchResult {
+    fn modify_field(&mut self, fspec: &str, fmod: &Hash, env: &Env) -> PatchResult {
         let ftags = self.iter_fields(fspec).collect::<Vec<_>>();
-        let field_builder = make_field(fmod)?;
+        let field_builder = make_field(fmod, env)?;
         let dim = make_dim_element(fmod)?;
         if !ftags.is_empty() {
             for ftag in ftags {
@@ -273,14 +273,14 @@ impl RegisterExt for Register {
         Ok(())
     }
 
-    fn add_field(&mut self, fname: &str, fadd: &Hash) -> PatchResult {
+    fn add_field(&mut self, fname: &str, fadd: &Hash, env: &Env) -> PatchResult {
         if self.get_field(fname).is_some() {
             return Err(anyhow!(
                 "register {} already has a field {fname}",
                 self.name
             ));
         }
-        let fnew = make_field(fadd)?.name(fname.into()).build(VAL_LVL)?;
+        let fnew = make_field(fadd, env)?.name(fname.into()).build(VAL_LVL)?;
         let fnew = if let Some(dim) = make_dim_element(fadd)? {
             fnew.array(dim.build(VAL_LVL)?)
         } else {
