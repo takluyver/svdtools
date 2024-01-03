@@ -9,7 +9,7 @@ use std::{fs::File, io::Read, path::Path};
 use super::iterators::{MatchIter, Matched};
 use super::peripheral::{PeripheralExt, RegisterBlockExt};
 use super::yaml_ext::{AsType, GetVal};
-use super::{abspath, matchname, Config, PatchResult, Spec, VAL_LVL};
+use super::{abspath, matchname, update_env, Config, Env, PatchResult, Spec, VAL_LVL};
 use super::{make_address_block, make_address_blocks, make_cpu, make_interrupt, make_peripheral};
 use super::{make_dim_element, modify_dim_element, modify_register_properties};
 
@@ -55,6 +55,7 @@ pub trait DeviceExt {
         pspec: &str,
         peripheral: &Hash,
         config: &Config,
+        env: &Env,
     ) -> PatchResult;
 }
 
@@ -64,6 +65,9 @@ impl DeviceExt for Device {
     }
 
     fn process(&mut self, device: &Hash, config: &Config) -> PatchResult {
+        let mut env = Env::new();
+        update_env(&mut env, device)?;
+
         // Handle any deletions
         for pspec in device.str_vec_iter("_delete")? {
             self.delete_peripheral(pspec)
@@ -154,7 +158,7 @@ impl DeviceExt for Device {
             let periphspec = periphspec.str()?;
             if !periphspec.starts_with('_') {
                 //val["_path"] = device["_path"]; // TODO: check
-                self.process_peripheral(periphspec, val.hash()?, config)
+                self.process_peripheral(periphspec, val.hash()?, config, &env)
                     .with_context(|| format!("According to `{periphspec}`"))?;
             }
         }
@@ -415,13 +419,14 @@ impl DeviceExt for Device {
         pspec: &str,
         peripheral: &Hash,
         config: &Config,
+        env: &Env,
     ) -> PatchResult {
         // Find all peripherals that match the spec
         let mut pcount = 0;
         let (pspec, ignore) = pspec.spec();
         for ptag in self.iter_peripherals(pspec) {
             pcount += 1;
-            ptag.process(peripheral, config)
+            ptag.process(peripheral, config, env.clone())
                 .with_context(|| format!("Processing peripheral `{}`", ptag.name))?;
         }
         if !ignore && pcount == 0 {

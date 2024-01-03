@@ -1,5 +1,7 @@
 pub mod patch_cli;
 
+use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -29,6 +31,17 @@ use yaml_ext::{AsType, GetVal, ToYaml};
 use crate::get_encoder_config;
 
 const VAL_LVL: ValidateLevel = ValidateLevel::Weak;
+
+pub type Env = HashMap<Cow<'static, str>, String>;
+
+fn update_env(env: &mut Env, dict: &Hash) -> PatchResult {
+    for (key, val) in dict.hash_iter("_env") {
+        let key = key.str()?;
+        let val = val.str()?;
+        env.insert(key.to_string().into(), val.to_string());
+    }
+    Ok(())
+}
 
 #[non_exhaustive]
 #[derive(Clone, Debug)]
